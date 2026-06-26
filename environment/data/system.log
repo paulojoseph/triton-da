@@ -1,0 +1,3 @@
+{"service": "auth", "status": 200, "latency_ms": 120}
+{"service": "gateway", "status": 500, "latency_ms": 850}
+invalid_corrupted_json_payload
