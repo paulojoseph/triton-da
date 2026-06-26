@@ -165,21 +165,38 @@ harbor --version
 
 ## PARTE 4 — Trazer a task pronta para o toolkit
 
-> A task já está construída e testada no seu repositório Git (branch `claude/data-annotation-task-debug-awxoih`). Vamos copiar a pasta dela para dentro de `tasks/` do toolkit.
+> A task já está construída e testada no seu repositório Git (branch `claude/data-annotation-task-debug-awxoih`).
+> **Dentro do container, a raiz do toolkit é `/workspace`** (seu prompt mostra `[task-authoring] /workspace$`). A task tem que ficar em `/workspace/tasks/optimize-velocity-features`. Vamos usar caminhos absolutos pra não errar.
 
 ### 4.1 Clonar o repositório e copiar a pasta da task
-▶ `[CONTAINER]`, a partir da raiz do toolkit (você já está nela):
-```bash
-git clone -b claude/data-annotation-task-debug-awxoih https://github.com/paulojoseph/triton-da.git /tmp/triton-da
-mkdir -p tasks
-cp -r /tmp/triton-da/tasks/optimize-velocity-features tasks/
-```
-👉 Se o `git clone` pedir login, use seu usuário/token do GitHub. Se preferir, faça o clone no `[HOST]` e copie a pasta — o resultado é o mesmo, contanto que `tasks/optimize-velocity-features` exista na raiz do toolkit.
-
-### 4.2 Conferir que os 5 arquivos chegaram
 ▶ `[CONTAINER]`:
 ```bash
-ls -R tasks/optimize-velocity-features
+git clone -b claude/data-annotation-task-debug-awxoih https://github.com/paulojoseph/triton-da.git /tmp/triton-da
+mkdir -p /workspace/tasks/optimize-velocity-features
+cp -r /tmp/triton-da/tasks/optimize-velocity-features/. /workspace/tasks/optimize-velocity-features/
+```
+👉 Se o `git clone` pedir login, use seu usuário/token do GitHub.
+
+### 4.1b (Prático) Criar um sync de 1 comando para futuras atualizações
+▶ `[CONTAINER]` — crie uma vez:
+```bash
+cat > /workspace/sync-task.sh << 'EOF'
+#!/bin/bash
+set -e
+cd /tmp/triton-da && git pull
+mkdir -p /workspace/tasks/optimize-velocity-features
+cp -r /tmp/triton-da/tasks/optimize-velocity-features/. /workspace/tasks/optimize-velocity-features/
+echo "✓ task sincronizada em /workspace/tasks/optimize-velocity-features"
+EOF
+chmod +x /workspace/sync-task.sh
+```
+👉 Daí em diante, sempre que eu empurrar uma mudança, rode: `bash /workspace/sync-task.sh`
+
+### 4.2 Conferir que os arquivos chegaram
+▶ `[CONTAINER]`:
+```bash
+ls -R /workspace/tasks/optimize-velocity-features
+grep -c "not assumed to be sorted" /workspace/tasks/optimize-velocity-features/instruction.md   # tem que imprimir 1
 ```
 ✅ Tem que listar:
 ```
