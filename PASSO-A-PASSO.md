@@ -9,6 +9,65 @@
 
 ---
 
+## PARTE 0 — Você está no Windows com Ubuntu (WSL): leia primeiro
+
+Você roda o terminal Ubuntu via WSL. Tudo funciona, mas preste atenção em 3 coisas.
+
+### 0.1 Confirmar que é WSL **2** (não WSL 1)
+▶ Abra o **PowerShell do Windows** (não o Ubuntu) e rode:
+```powershell
+wsl -l -v
+```
+✅ Na linha do seu Ubuntu, a coluna **VERSION** tem que ser **2**.
+👉 Se for `1`, converta (PowerShell, ajuste o nome se preciso):
+```powershell
+wsl --set-version Ubuntu 2
+```
+
+### 0.2 Docker no WSL = Docker Desktop com integração WSL
+▶ Instale o **Docker Desktop for Windows** (https://www.docker.com/products/docker-desktop/).
+👉 Abra o Docker Desktop → **Settings**:
+- **General** → marque **"Use the WSL 2 based engine"**.
+- **Resources → WSL Integration** → **ative o toggle do seu Ubuntu**.
+- Clique **Apply & Restart**.
+✅ Validar **dentro do terminal Ubuntu (WSL)**:
+```bash
+docker info
+```
+✅ Tem que responder com infos do servidor. Se der "Cannot connect", o Docker Desktop não está aberto ou a integração WSL não foi ativada.
+
+### 0.3 ⚠️ ARMADILHA: trabalhe no disco do Linux (`~`), NÃO em `/mnt/c/...`
+Se você baixar/extrair o toolkit dentro de `/mnt/c/...` (o disco do Windows), fica **lento** e dá erro de permissão e de quebra de linha (CRLF). **Sempre trabalhe na home do Linux.**
+▶ No terminal Ubuntu:
+```bash
+cd ~
+pwd
+```
+✅ Tem que imprimir `/home/<seu-usuario>` — **não** pode começar com `/mnt/c`.
+👉 Se o zip do toolkit está no Downloads do Windows, **mova pra home do Linux** antes de extrair:
+```bash
+cp /mnt/c/Users/<SeuUsuarioWindows>/Downloads/triton-toolkit-3a9bcb8.zip ~/
+cd ~
+```
+
+### 0.4 Instalar o Node **dentro** do WSL (não usar o Node do Windows)
+▶ No terminal Ubuntu, instale via nvm (não precisa de sudo):
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+source ~/.nvm/nvm.sh
+nvm install --lts
+```
+✅ Validar:
+```bash
+node --version
+npx --version
+```
+✅ Ambos imprimem versão.
+
+> Com a Parte 0 feita, pule o "1.1/1.2" abaixo (Docker e Node já estão prontos) e siga do **passo 1.3 (Git)** em diante. Rode **tudo** no terminal Ubuntu (WSL) — nunca no PowerShell, exceto o passo 0.1.
+
+---
+
 ## PARTE 1 — Preparar a máquina (uma vez só)
 
 ### 1.1 Instalar o Docker Desktop
@@ -44,12 +103,13 @@ git --version
 
 ### 2.1 Baixar e extrair o toolkit
 👉 Na plataforma DataAnnotation, na página **Setup**, clique no link **"Download latest toolkit (#3a9bcb8)"** e salve o zip.
-▶ `[HOST]` — vá para a pasta onde baixou e extraia (ajuste o nome do arquivo se preciso):
+▶ `[HOST]` — vá para a pasta onde está o zip e extraia (ajuste o nome do arquivo se preciso). **No WSL** você já moveu o zip para `~` (Parte 0.3):
 ```bash
-cd ~/Downloads
+cd ~
 unzip triton-toolkit-3a9bcb8.zip -d triton-toolkit
 cd triton-toolkit
 ```
+> No macOS/Linux nativo, troque `cd ~` por `cd ~/Downloads`.
 ✅ Validar que você está na raiz do toolkit:
 ```bash
 ls
