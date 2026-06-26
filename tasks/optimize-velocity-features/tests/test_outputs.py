@@ -33,38 +33,45 @@ def _write(path, txns):
 def build_large(path, hot=720000, cold_accounts=8, cold_each=10000):
     """One hot account whose ~50-minute burst (720k transactions inside a span
     shorter than the 1h window) makes the trailing window hold ~360k rows, plus
-    several normal low-volume accounts. With the window that dense, any O(window)
-    per-step approach for count_ge -- a per-window rescan, or list + bisect.insort
-    (whose insert/evict shift the in-window amounts) -- costs ~N*avg_window and
-    runs tens of seconds to minutes, blowing the budget; only an O(log U) order-
-    statistic structure (Fenwick/BIT) stays comfortably under it."""
+    several normal low-volume accounts. With the window that dense, computing
+    max_repeat by rebuilding a Counter per window (~N*avg_window) or by keeping an
+    incremental Counter but scanning all distinct amounts for the max each step
+    (~N*distinct) runs for tens of seconds to minutes and blows the budget; only
+    O(1)-per-step maintenance of the sliding max-frequency stays under it."""
     txns = []
     base = 1_000_000
     for k in range(hot):
-        txns.append(("hot", base + (k * 3000) // hot, (k * 37) % 800 + 1))
+        # Mostly-unique amounts (a large distinct-value range) with a periodically
+        # repeated "card-testing" amount. The large range makes scanning the
+        # in-window frequencies for a max prohibitively slow.
+        amount = 1 if k % 8 == 0 else 1000 + k
+        txns.append(("hot", base + (k * 3000) // hot, amount))
     for a in range(cold_accounts):
         cbase = 5_000_000 + a * 1_000_000
         for k in range(cold_each):
-            txns.append((f"cold-{a}", cbase + (k * 86400) // cold_each, (k * 13 + a) % 800 + 1))
+            txns.append((f"cold-{a}", cbase + (k * 86400) // cold_each, 1 if k % 5 == 0 else 100000 + k))
     _write(path, txns)
 
 
 def build_small(path):
-    """Small, edge-case-rich input: self-exclusion, same-ts ties, the inclusive
-    window boundary at ts-3600, amount ties for the >= comparison, a lone
-    transaction, and a same-account pair outside each other's window."""
+    """Small, edge-case-rich input: max_repeat counts the row itself, same-ts
+    ties, the inclusive window boundary at ts-3600, a peak frequency that must
+    DROP once the window evicts its peak group, and isolated rows."""
     txns = [
-        # acct-A: a burst with ties and a boundary case.
+        # acct-A: three equal amounts at one ts (peak max_repeat 3), then the
+        # window slides past them so the peak frequency has to fall to 2.
         ("acct-A", 10000, 100),
-        ("acct-A", 10000, 100),   # same ts and amount as previous -> they count each other
-        ("acct-A", 10000, 50),    # same ts, smaller amount
-        ("acct-A", 13600, 80),    # exactly 3600 after ts=10000 -> those are in-window (boundary inclusive)
-        ("acct-A", 13601, 200),   # 3601 after 10000 -> the ts=10000 ones are out of window for this one
-        # acct-B: interleaved with A in the file, independent window.
+        ("acct-A", 10000, 100),
+        ("acct-A", 10000, 100),   # 3x amount 100 at ts=10000
+        ("acct-A", 10000, 50),    # one 50 at the same ts
+        ("acct-A", 13600, 200),   # ts-3600 == 10000 -> the ts=10000 rows are still in-window (boundary inclusive)
+        ("acct-A", 13601, 200),   # 3601 later -> the ts=10000 rows drop out; peak must fall from 3 to 2
+        ("acct-A", 13601, 100),   # same ts as the previous 200
+        # acct-B: a same-amount pair within one hour -> max_repeat 2.
         ("acct-B", 50000, 10),
-        ("acct-B", 51000, 10),    # same amount -> count_ge includes the equal one
-        ("acct-B", 99000, 999),   # far away -> sees none of the earlier acct-B txns
-        # acct-C: a single transaction -> all features zero.
+        ("acct-B", 51000, 10),
+        ("acct-B", 99000, 999),   # far away -> sees none of the earlier acct-B rows
+        # acct-C: a single transaction -> count 0 but max_repeat 1 (counts itself).
         ("acct-C", 7, 7),
     ]
     _write(path, txns)
@@ -73,8 +80,7 @@ def build_small(path):
 # --------------------------------------------------------------------------- #
 # References
 # --------------------------------------------------------------------------- #
-def brute_truth(path):
-    """Obviously-correct O(N^2) reference."""
+def _load(path):
     txns = []
     with open(path) as f:
         for line in f:
@@ -82,64 +88,48 @@ def brute_truth(path):
                 continue
             d = json.loads(line)
             txns.append((d["account"], d["ts"], d["amount"]))
+    return txns
+
+
+def brute_truth(path):
+    """Obviously-correct O(N^2) reference (Counter per window for max_repeat)."""
+    txns = _load(path)
     n = len(txns)
     out = []
     for i in range(n):
         acc, ts, amt = txns[i]
-        c = s = cge = 0
+        count = 0
+        s = 0
+        freq = {}
         for j in range(n):
-            if j == i:
-                continue
             aj, tj, amj = txns[j]
             if aj != acc:
                 continue
             if ts - WINDOW <= tj <= ts:
-                c += 1
-                s += amj
-                if amj >= amt:
-                    cge += 1
-        out.append({"count": c, "sum_amount": s, "count_ge": cge})
+                freq[amj] = freq.get(amj, 0) + 1     # includes self (j == i)
+                if j != i:
+                    count += 1
+                    s += amj
+        out.append({"count": count, "sum_amount": s, "max_repeat": max(freq.values())})
     return out
 
 
-class _Fen:
-    def __init__(self, n):
-        self.n = n
-        self.t = [0] * (n + 1)
-
-    def add(self, i, v):
-        while i <= self.n:
-            self.t[i] += v
-            i += i & -i
-
-    def pref(self, i):
-        s = 0
-        while i > 0:
-            s += self.t[i]
-            i -= i & -i
-        return s
-
-
 def fast_truth(path):
-    """Independent O(N log N) reference used to score the large input."""
-    txns = []
-    with open(path) as f:
-        for line in f:
-            if not line.strip():
-                continue
-            d = json.loads(line)
-            txns.append((d["account"], d["ts"], d["amount"]))
+    """Independent near-linear reference used to score the large input. Maintains
+    the sliding max-frequency via a frequency-of-frequencies table."""
+    txns = _load(path)
     n = len(txns)
     out = [None] * n
-    uniq = sorted({t[2] for t in txns})
-    rk = {a: i + 1 for i, a in enumerate(uniq)}
     groups = defaultdict(list)
     for idx, (acc, ts, amt) in enumerate(txns):
         groups[acc].append(idx)
     for acc, idxs in groups.items():
         idxs.sort(key=lambda i: txns[i][1])
-        fen = _Fen(len(uniq))
-        total = wsum = 0
+        freq = {}
+        cnt_at = {}
+        mx = 0
+        wsum = 0
+        size = 0
         rem = 0
         L = len(idxs)
         p = 0
@@ -151,20 +141,32 @@ def fast_truth(path):
             lo = cur - WINDOW
             while rem < p and txns[idxs[rem]][1] < lo:
                 a = txns[idxs[rem]][2]
-                fen.add(rk[a], -1)
+                f = freq[a]
+                cnt_at[f] -= 1
+                if f == mx and cnt_at[f] == 0:
+                    mx -= 1
+                if f == 1:
+                    del freq[a]
+                else:
+                    freq[a] = f - 1
+                    cnt_at[f - 1] = cnt_at.get(f - 1, 0) + 1
                 wsum -= a
-                total -= 1
+                size -= 1
                 rem += 1
             for r in range(p, q):
                 a = txns[idxs[r]][2]
-                fen.add(rk[a], 1)
+                f = freq.get(a, 0)
+                if f:
+                    cnt_at[f] -= 1
+                freq[a] = f + 1
+                cnt_at[f + 1] = cnt_at.get(f + 1, 0) + 1
+                if f + 1 > mx:
+                    mx = f + 1
                 wsum += a
-                total += 1
+                size += 1
             for r in range(p, q):
                 gi = idxs[r]
-                a = txns[gi][2]
-                less = fen.pref(rk[a] - 1)
-                out[gi] = {"count": total - 1, "sum_amount": wsum - a, "count_ge": total - less - 1}
+                out[gi] = {"count": size - 1, "sum_amount": wsum - txns[gi][2], "max_repeat": mx}
             p = q
     return out
 
@@ -200,15 +202,16 @@ def _reset():
 # Tests
 # --------------------------------------------------------------------------- #
 def test_small_correctness_edge_cases():
-    """Exact output on a tiny input that exercises self-exclusion, same-ts ties,
-    the inclusive trailing-window boundary, amount ties, and isolated rows."""
+    """Exact output on a tiny input that exercises max_repeat's self-inclusion,
+    same-ts ties, the inclusive trailing-window boundary, and a peak frequency
+    that must drop as the window evicts its peak group, plus isolated rows."""
     _reset()
     build_small(INPUT_PATH)
     truth = brute_truth(INPUT_PATH)
     # Guards: the dataset really does exercise the subtle cases.
-    assert any(r["count_ge"] != r["count"] for r in truth), "amount >= comparison not exercised"
-    assert any(r["count"] == 0 for r in truth), "isolated-row case not exercised"
-    assert any(r["count"] >= 2 for r in truth), "tie/window grouping not exercised"
+    assert any(r["max_repeat"] >= 3 for r in truth), "peak repeat group not exercised"
+    assert any(r["count"] == 0 and r["max_repeat"] == 1 for r in truth), "self-inclusion/isolated row not exercised"
+    assert any(r["max_repeat"] == 2 for r in truth), "intermediate repeat not exercised"
 
     elapsed = run_timed(ENTRY, PERF_BUDGET_SEC)
     assert elapsed is not None, "Engine did not finish on the tiny input."

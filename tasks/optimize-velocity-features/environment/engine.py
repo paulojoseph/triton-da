@@ -20,19 +20,18 @@ def run():
         account, ts, amount = txns[i]
         count = 0
         sum_amount = 0
-        count_ge = 0
+        freq = {}
         for j in range(n):
-            if j == i:
-                continue
             acc_j, ts_j, amt_j = txns[j]
             if acc_j != account:
                 continue
             if ts - WINDOW <= ts_j <= ts:
-                count += 1
-                sum_amount += amt_j
-                if amt_j >= amount:
-                    count_ge += 1
-        out.append({"count": count, "sum_amount": sum_amount, "count_ge": count_ge})
+                freq[amt_j] = freq.get(amt_j, 0) + 1
+                if j != i:
+                    count += 1
+                    sum_amount += amt_j
+        max_repeat = max(freq.values())  # window always contains this transaction
+        out.append({"count": count, "sum_amount": sum_amount, "max_repeat": max_repeat})
 
     with open(OUTPUT_PATH, "w") as f:
         json.dump(out, f)
