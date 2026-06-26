@@ -1,6 +1,6 @@
 #!/bin/bash
-# Copia a solução Python limpa e homologada diretamente para o arquivo alvo
-cp "$(dirname "$0")/solve.py" /app/aggregator.py
-
-# Executa para gerar o JSON inicial esperado pela esteira
-python3 /app/aggregator.py
+# Reference solution: replace the broken pipeline entry point with a correct,
+# bounded-memory streaming implementation, then run it to produce /app/output.json.
+set -e
+cp "$(dirname "$0")/solve.py" /app/tracer/main.py
+python3 /app/tracer/main.py

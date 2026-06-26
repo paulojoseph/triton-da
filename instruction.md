@@ -1,10 +1,13 @@
-Our log aggregator at `/app/aggregator.py` crashes with Out-of-Memory faults on large files. Please refactor it into a memory-bounded stream processor that reads `/app/data/system.log` line-by-line, ensuring that peak resident memory (RSS) stays strictly under 64MB using only the Python standard library.
+The request-tracing pipeline at `/app/tracer/` is broken: on production-sized inputs it exhausts memory, and it reports incorrect metrics. Repair it so that running `python3 /app/tracer/main.py` reads the sharded logs under `/app/data/`, computes the metrics below, and writes them to `/app/output.json`. Peak resident memory (RSS) must stay strictly under 64 MB, using only the Python standard library.
 
-Ignore blank lines. A line is valid if it parses as a JSON object with exactly these keys: `service` (either "auth", "gateway", or "payment"), `status` (strict integer 100–599), and `latency_ms` (strict integer 0–1000). Any other non-blank line violates our strict primitive type contract and is considered malformed, which should increment a counter and be skipped gracefully.
+`/app/data/` holds one or more shard files named `shard-*.log`. Concatenate them in ascending filename order, with lines in file order, to form a single event stream. Ignore blank (whitespace-only) lines. A valid event is a JSON object with exactly the keys `id` (non-empty string), `svc` (one of `"auth"`, `"gateway"`, `"payment"`), `phase` (one of `"start"` or `"end"`), `ts` (strict integer millisecond timestamp ≥ 0), and `status` (strict integer 100–599). Booleans are not integers. Any other non-blank line is malformed: count it and skip it.
 
-To capture localized load shifts, track metrics concurrently inside independent rolling lookback windows: a global window of the last 1,200,000 valid records, and separate service windows of the last 400,000 valid records per service type. At the end of the stream, write a flat JSON object to `/app/output.json` containing exactly these ten keys:
-- `processed_count` and `malformed_count`: Total file-wide counts.
-- `{window}_error_rate` (rounded to 4 decimal places): Ratio of records with status >= 400 within that final window.
-- `{window}_p95_latency_ms` (rounded to 2 decimal places): Nearest-rank 95th percentile of latency within that final window.
+Correlate events into requests by `id`, processing the stream in order. A `start` opens a request. An `end` whose `id` is currently open closes it, producing one completed request whose `svc` is taken from its `start`, whose `latency_ms` is `end.ts − start.ts`, and which is errored iff its `end` `status` is ≥ 400. A `start` whose `id` is already open is malformed. An `end` with no currently-open `id`, and any request still open at the end of the stream, is unmatched.
 
-Replace `{window}` with `global`, `auth`, `gateway`, and `payment`. For windows with fewer items than their maximum capacity, calculate metrics over the available items. Empty windows default to 0.0000 for error rates and 0.00 for percentiles. All float rounding must use exact rational round-half-up math.
+Track metrics over rolling windows of completed requests, in the order requests complete: a global window of the last 5,000 completed requests, and a per-service window of the last 2,000 completed requests for each of `auth`, `gateway`, and `payment`. Write a flat JSON object to `/app/output.json` with exactly these eleven keys:
+
+- `processed_count`: number of completed requests; `malformed_count`; `unmatched_count` (file-wide totals).
+- `{window}_error_rate` (4 decimal places): errored requests ÷ window size.
+- `{window}_p95_latency_ms` (2 decimal places): nearest-rank 95th percentile — the `latency_ms` at 1-based index `ceil(0.95 × size)` of the window's latencies sorted ascending.
+
+Replace `{window}` with `global`, `auth`, `gateway`, and `payment`. When a window holds fewer items than its capacity, compute over the available items; an empty window gives `0.0000` and `0.00`. All rounding must use exact round-half-up.

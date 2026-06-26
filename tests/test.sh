@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pinar rigidamente as versoes para garantir reproducibilidade absoluta ao longo do tempo
+# Pin verifier-only dependencies for reproducibility (not needed by the agent).
 python3 -m pip install --no-cache-dir --break-system-packages psutil==6.1.1 pytest==8.3.4
 python3 -m pytest /tests/test_outputs.py "$@"
 if [ $? -eq 0 ]; then

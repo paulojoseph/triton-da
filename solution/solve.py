@@ -1,140 +1,163 @@
+#!/usr/bin/env python3
+"""Reference repair of the trace-latency pipeline.
+
+Single-pass, bounded-memory streaming implementation. Correlates start/end
+events into completed requests, evicting open requests as soon as they close,
+and keeps only fixed-capacity rolling windows of completed requests. Peak RSS
+stays far below the 64MB budget regardless of input size.
+"""
 import json
 import os
-import math
+import glob
 import array
 from decimal import Decimal, ROUND_HALF_UP
 
-def round_half_up(val, decimals):
-    """Computes exact rational round-half-up rounding as required by the specification."""
-    fmt = '.' + '0' * decimals if decimals > 0 else '1'
-    return float(Decimal(str(val)).quantize(Decimal(fmt), rounding=ROUND_HALF_UP))
+SERVICES = ("auth", "gateway", "payment")
+DATA_DIR = "/app/data"
+OUT_PATH = "/app/output.json"
 
-def calculate_window_p95(histogram, size):
-    """Computes the nearest-rank 95th percentile from a 1001-slot frequency histogram."""
+# Rolling window capacities (completed requests).
+GLOBAL_CAP = 5000
+SERVICE_CAP = 2000
+
+# latency_ms is an integer in [0, 1000] by construction.
+MAX_LATENCY = 1000
+
+
+def _rate(errs, size):
     if size == 0:
-        return 0.00
-    target_rank = math.ceil(0.95 * size)
-    cumulative = 0
-    for ms in range(1001):
-        cumulative += histogram[ms]
-        if cumulative >= target_rank:
-            return float(Decimal(str(ms)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
-    return 0.00
+        return 0.0
+    return float((Decimal(errs) / Decimal(size)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
 
-def run_optimized_aggregator():
-    input_path = "/app/data/system.log"
-    output_path = "/app/output.json"
-    if not os.path.exists(input_path):
-        return
 
-    # Capacidades definidas pela instrução (1.2M global / 400k por serviço)
-    G_CAP = 1200000
-    S_CAP = 400000
+def _round2(value):
+    return float(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
-    processed_count = 0
-    malformed_count = 0
 
-    # Buffers Circulares (Status: 'B' = unsigned char/1 byte; Latency: 'H' = unsigned short/2 bytes)
-    global_status = array.array('B', [0] * G_CAP)
-    global_latency = array.array('H', [0] * G_CAP)
-    global_head = 0
-    global_size = 0
-    global_errors = 0
-    global_hist = [0] * 1001
+class RollingWindow:
+    """Fixed-capacity FIFO of completed requests with O(1) error count and an
+    O(MAX_LATENCY) nearest-rank p95 via an eviction-aware latency histogram."""
+    __slots__ = ("cap", "is_err", "lat", "hist", "head", "size", "errs")
 
-    service_status = {s: array.array('B', [0] * S_CAP) for s in ["auth", "gateway", "payment"]}
-    service_latency = {s: array.array('H', [0] * S_CAP) for s in ["auth", "gateway", "payment"]}
-    service_heads = {"auth": 0, "gateway": 0, "payment": 0}
-    service_sizes = {"auth": 0, "gateway": 0, "payment": 0}
-    service_errors = {"auth": 0, "gateway": 0, "payment": 0}
-    service_hists = {s: [0] * 1001 for s in ["auth", "gateway", "payment"]}
+    def __init__(self, cap):
+        self.cap = cap
+        self.is_err = array.array("B", bytes(cap))         # 1 byte / slot
+        self.lat = array.array("H", bytes(2 * cap))        # 2 bytes / slot
+        self.hist = [0] * (MAX_LATENCY + 1)
+        self.head = 0
+        self.size = 0
+        self.errs = 0
 
-    with open(input_path, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            try:
-                data = json.loads(line)
-                # Validação estrita do esquema e tipos
-                if set(data.keys()) != {"service", "status", "latency_ms"}:
-                    malformed_count += 1
+    def push(self, is_err, latency):
+        if self.size == self.cap:
+            h = self.head
+            self.errs -= self.is_err[h]
+            self.hist[self.lat[h]] -= 1
+            self.is_err[h] = is_err
+            self.lat[h] = latency
+            self.head = (h + 1) % self.cap
+        else:
+            idx = (self.head + self.size) % self.cap
+            self.is_err[idx] = is_err
+            self.lat[idx] = latency
+            self.size += 1
+        self.errs += is_err
+        self.hist[latency] += 1
+
+    def error_rate(self):
+        return _rate(self.errs, self.size)
+
+    def p95(self):
+        if self.size == 0:
+            return 0.0
+        # nearest-rank: 1-based index ceil(0.95 * size)
+        target = -(-95 * self.size // 100)
+        cumulative = 0
+        for ms in range(MAX_LATENCY + 1):
+            cumulative += self.hist[ms]
+            if cumulative >= target:
+                return _round2(ms)
+        return 0.0
+
+
+def _valid_event(line):
+    """Returns the parsed (id, svc, phase, ts, status) tuple or None if malformed."""
+    try:
+        data = json.loads(line)
+    except Exception:
+        return None
+    if type(data) is not dict or set(data.keys()) != {"id", "svc", "phase", "ts", "status"}:
+        return None
+    rid = data["id"]
+    svc = data["svc"]
+    phase = data["phase"]
+    ts = data["ts"]
+    status = data["status"]
+    if type(rid) is not str or rid == "":
+        return None
+    if svc not in SERVICES or phase not in ("start", "end"):
+        return None
+    if type(ts) is not int or isinstance(ts, bool) or ts < 0:
+        return None
+    if type(status) is not int or isinstance(status, bool) or not (100 <= status <= 599):
+        return None
+    return (rid, svc, phase, ts, status)
+
+
+def main():
+    shards = sorted(glob.glob(os.path.join(DATA_DIR, "shard-*.log")))
+
+    processed = 0
+    malformed = 0
+    unmatched = 0
+    open_reqs = {}  # id -> (ts_start, svc)
+
+    gwin = RollingWindow(GLOBAL_CAP)
+    swins = {s: RollingWindow(SERVICE_CAP) for s in SERVICES}
+
+    for path in shards:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
                     continue
-                srv = data["service"]
-                if srv not in ["auth", "gateway", "payment"]:
-                    malformed_count += 1
+                ev = _valid_event(line)
+                if ev is None:
+                    malformed += 1
                     continue
-                status = data["status"]
-                latency = data["latency_ms"]
-                if type(status) is not int or isinstance(status, bool) or \
-                   type(latency) is not int or isinstance(latency, bool):
-                    malformed_count += 1
-                    continue
-                if not (100 <= status <= 599) or not (0 <= latency <= 1000):
-                    malformed_count += 1
-                    continue
-
-                processed_count += 1
-                is_err = 1 if status >= 400 else 0
-
-                # Atualização Global
-                if global_size == G_CAP:
-                    old_err = global_status[global_head]
-                    old_lat = global_latency[global_head]
-                    global_errors -= old_err
-                    global_hist[old_lat] -= 1
-                    global_status[global_head] = is_err
-                    global_latency[global_head] = latency
-                    global_head = (global_head + 1) % G_CAP
+                rid, svc, phase, ts, status = ev
+                if phase == "start":
+                    if rid in open_reqs:
+                        malformed += 1
+                        continue
+                    open_reqs[rid] = (ts, svc)
                 else:
-                    idx = (global_head + global_size) % G_CAP
-                    global_status[idx] = is_err
-                    global_latency[idx] = latency
-                    global_size += 1
+                    start = open_reqs.pop(rid, None)
+                    if start is None:
+                        unmatched += 1
+                        continue
+                    ts0, svc0 = start
+                    latency = ts - ts0
+                    is_err = 1 if status >= 400 else 0
+                    processed += 1
+                    gwin.push(is_err, latency)
+                    swins[svc0].push(is_err, latency)
 
-                global_errors += is_err
-                global_hist[latency] += 1
+    unmatched += len(open_reqs)
 
-                # Atualização por Serviço
-                s_stat = service_status[srv]
-                s_lat = service_latency[srv]
-                s_head = service_heads[srv]
-                s_size = service_sizes[srv]
-
-                if s_size == S_CAP:
-                    old_s_err = s_stat[s_head]
-                    old_s_lat = s_lat[s_head]
-                    service_errors[srv] -= old_s_err
-                    service_hists[srv][old_s_lat] -= 1
-                    s_stat[s_head] = is_err
-                    s_lat[s_head] = latency
-                    service_heads[srv] = (s_head + 1) % S_CAP
-                else:
-                    idx = (s_head + s_size) % S_CAP
-                    s_stat[idx] = is_err
-                    s_lat[idx] = latency
-                    service_sizes[srv] += 1
-
-                service_errors[srv] += is_err
-                service_hists[srv][latency] += 1
-
-            except Exception:
-                malformed_count += 1
-
-    # Cálculos Finais de Agregação
-    output_metrics = {
-        "processed_count": processed_count,
-        "malformed_count": malformed_count,
-        "global_error_rate": float((Decimal(global_errors) / Decimal(global_size)).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)) if global_size > 0 else 0.0000,
-        "global_p95_latency_ms": calculate_window_p95(global_hist, global_size)
+    out = {
+        "processed_count": processed,
+        "malformed_count": malformed,
+        "unmatched_count": unmatched,
+        "global_error_rate": gwin.error_rate(),
+        "global_p95_latency_ms": gwin.p95(),
     }
+    for s in SERVICES:
+        out[f"{s}_error_rate"] = swins[s].error_rate()
+        out[f"{s}_p95_latency_ms"] = swins[s].p95()
 
-    for srv in ["auth", "gateway", "payment"]:
-        s_size = service_sizes[srv]
-        output_metrics[f"{srv}_error_rate"] = float((Decimal(service_errors[srv]) / Decimal(s_size)).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)) if s_size > 0 else 0.0000
-        output_metrics[f"{srv}_p95_latency_ms"] = calculate_window_p95(service_hists[srv], s_size)
+    with open(OUT_PATH, "w") as f:
+        json.dump(out, f, indent=2)
 
-    with open(output_path, "w") as f:
-        json.dump(output_metrics, f, indent=2)
 
 if __name__ == "__main__":
-    run_optimized_aggregator()
+    main()
