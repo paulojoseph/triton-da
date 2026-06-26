@@ -17,7 +17,7 @@ INPUT_PATH = "/app/data/transactions.jsonl"
 OUTPUT_FILE = "/app/output.json"
 ENTRY = "python3 /app/engine.py"
 
-PERF_BUDGET_SEC = 60.0
+PERF_BUDGET_SEC = 20.0
 
 
 # --------------------------------------------------------------------------- #
@@ -30,18 +30,22 @@ def _write(path, txns):
             f.write(json.dumps({"account": acc, "ts": ts, "amount": amt}) + "\n")
 
 
-def build_large(path, n=300000, n_accounts=10, span=7200):
-    """Round-robin interleaved accounts; each account's transactions are dense
-    inside ~2h so the trailing 1h window holds ~15k of them. A per-account window
-    *scan* for count_ge is ~N*avg_window ≈ 4.5e9 ops and blows the budget; only a
-    log-time structure (Fenwick/BIT) survives."""
-    per = n // n_accounts
+def build_large(path, hot=720000, cold_accounts=8, cold_each=10000):
+    """One hot account whose ~50-minute burst (720k transactions inside a span
+    shorter than the 1h window) makes the trailing window hold ~360k rows, plus
+    several normal low-volume accounts. With the window that dense, any O(window)
+    per-step approach for count_ge -- a per-window rescan, or list + bisect.insort
+    (whose insert/evict shift the in-window amounts) -- costs ~N*avg_window and
+    runs tens of seconds to minutes, blowing the budget; only an O(log U) order-
+    statistic structure (Fenwick/BIT) stays comfortably under it."""
     txns = []
-    for k in range(per):
-        for a in range(n_accounts):
-            ts = a * 10_000_000 + (k * span) // per
-            amount = (k * 37 + a * 5) % 600 + 1
-            txns.append((f"acct-{a:03d}", ts, amount))
+    base = 1_000_000
+    for k in range(hot):
+        txns.append(("hot", base + (k * 3000) // hot, (k * 37) % 800 + 1))
+    for a in range(cold_accounts):
+        cbase = 5_000_000 + a * 1_000_000
+        for k in range(cold_each):
+            txns.append((f"cold-{a}", cbase + (k * 86400) // cold_each, (k * 13 + a) % 800 + 1))
     _write(path, txns)
 
 
