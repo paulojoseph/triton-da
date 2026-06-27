@@ -1,0 +1,6 @@
+owner_id,owned_id,fraction
+P,A,0.80
+P,B,0.60
+A,C,0.50
+C,A,0.20
+B,C,0.30
