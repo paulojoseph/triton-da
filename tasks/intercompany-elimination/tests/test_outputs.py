@@ -85,9 +85,12 @@ def _q2(x):
     return Decimal(x).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def reference(entities, fx, txns, pip):
+def reference(entities, fx, txns, pip, rounding=ROUND_HALF_UP):
     ent = {r[0]: r for r in entities}
     rates = {r[0]: (Decimal(r[1]), Decimal(r[2])) for r in fx}  # ccy -> (closing, average)
+
+    def q(x):
+        return Decimal(x).quantize(Decimal("0.01"), rounding=rounding)
 
     def eff_own(eid):
         pct = Decimal("1")
@@ -100,7 +103,7 @@ def reference(entities, fx, txns, pip):
     def to_usd(amount, ccy, leg_type):
         closing, average = rates[ccy]
         r = closing if leg_type in CLOSING_TYPES else average
-        return _q2(Decimal(str(amount)) * r)
+        return q(Decimal(str(amount)) * r)
 
     by_doc = {}
     for doc_id, entity_id, leg_type, amount, ccy in txns:
@@ -137,7 +140,7 @@ def reference(entities, fx, txns, pip):
         if seller[2].strip() == "":
             nci = Decimal("0.00")
         else:
-            nci = _q2(usd * (Decimal("1") - eff_own(seller_id)))
+            nci = q(usd * (Decimal("1") - eff_own(seller_id)))
         tot["pip_nci_usd"] += nci
 
     return {"documents": documents, "totals": {k: float(v) for k, v in tot.items()}}
@@ -151,9 +154,11 @@ WORKED_ENTITIES = [
     ["FR", "EUR", "US", "0.80"],
     ["DE", "EUR", "US", "0.75"],
     ["JP", "JPY", "US", "0.90"],
+    ["AU", "AUD", "US", "0.85"],
     ["FR2", "EUR", "FR", "0.50"],   # held through FR: effective ownership 0.80 x 0.50 = 0.40
 ]
-WORKED_FX = [["USD", "1.0", "1.0"], ["EUR", "1.10", "1.08"], ["JPY", "0.0068", "0.0068"]]
+WORKED_FX = [["USD", "1.0", "1.0"], ["EUR", "1.10", "1.08"],
+             ["JPY", "0.0068", "0.0068"], ["AUD", "1.125", "1.115"]]
 WORKED_TXNS = [
     ["D1", "FR", "AR", "1000.00", "EUR"], ["D1", "US", "AP", "1095.00", "USD"],
     ["D2", "FR", "AR", "1000.00", "EUR"], ["D2", "US", "AP", "1080.00", "USD"],
@@ -161,6 +166,8 @@ WORKED_TXNS = [
     ["D4", "JP", "AR", "150000", "JPY"],
     ["D5", "US", "DIV_INCOME", "500.00", "USD"], ["D5", "FR", "DIV_PAID", "460.00", "EUR"],
     ["D6", "FR", "AR", "1000.00", "EUR"], ["D6", "US", "AP", "1100.00", "USD"],  # matched
+    # D7: 8009 x 1.125 = 9010.125 -> half-up 9010.13 (banker's rounding would give 9010.12)
+    ["D7", "AU", "AR", "8009", "AUD"], ["D7", "US", "AP", "9010.13", "USD"],
 ]
 WORKED_PIP = [
     ["FR", "US", "1000.00", "EUR"],   # upstream, direct sub (g = 0.80)
@@ -176,12 +183,13 @@ WORKED_EXPECTED = {
         "D4": {"eliminated_usd": 0.00, "imbalance_usd": 1020.00, "classification": "one_sided"},
         "D5": {"eliminated_usd": 500.00, "imbalance_usd": -6.00, "classification": "out_of_tolerance"},
         "D6": {"eliminated_usd": 1100.00, "imbalance_usd": 0.00, "classification": "matched"},
+        "D7": {"eliminated_usd": 9010.13, "imbalance_usd": 0.00, "classification": "matched"},
     },
     "totals": {
-        "eliminated_ar_ap_usd": 3275.00,       # 1095 + 1080 + 1100
+        "eliminated_ar_ap_usd": 12285.13,      # 1095 + 1080 + 1100 + 9010.13
         "eliminated_rev_exp_usd": 2160.00,
         "eliminated_dividends_usd": 500.00,
-        "ic_imbalance_usd": 999.00,            # 5 + 20 - 40 + 1020 - 6 + 0
+        "ic_imbalance_usd": 999.00,            # 5 + 20 - 40 + 1020 - 6 + 0 + 0
         "pip_eliminated_usd": 2660.00,         # 1080 + 500 + 1080
         "pip_nci_usd": 864.00,                 # 1080*0.20 + 0 + 1080*0.60
     },
@@ -190,21 +198,22 @@ WORKED_EXPECTED = {
 
 def build_generated():
     """Deterministic mid-size dataset covering every category x classification x
-    FX direction, plus upstream/downstream/full-ownership PIP."""
+    FX direction, plus a half-cent rounding-tie block (banker's rounding fails),
+    multi-tier ownership chains (2 and 3 deep), and upstream/downstream PIP."""
     subs = [("FR", "EUR", "0.80"), ("DE", "EUR", "0.60"), ("GB", "GBP", "0.90"),
-            ("JP", "JPY", "0.75"), ("CH", "CHF", "1.00")]
+            ("JP", "JPY", "0.75"), ("CH", "CHF", "1.00"), ("AU", "AUD", "0.85")]
     entities = [["US", "USD", "", ""]] + [[s[0], s[1], "US", s[2]] for s in subs]
     # lower-tier subsidiaries held through another subsidiary (effective != direct)
-    entities += [["FR2", "EUR", "FR", "0.50"],   # effective 0.80 x 0.50 = 0.40
-                 ["DE2", "EUR", "DE", "0.70"]]   # effective 0.60 x 0.70 = 0.42
+    entities += [["FR2", "EUR", "FR", "0.50"],    # effective 0.80 x 0.50 = 0.40
+                 ["FR3", "EUR", "FR2", "0.90"],   # effective 0.80 x 0.50 x 0.90 = 0.36 (3 tiers)
+                 ["DE2", "EUR", "DE", "0.70"]]    # effective 0.60 x 0.70 = 0.42
     fx = [["USD", "1.0", "1.0"], ["EUR", "1.10", "1.08"], ["GBP", "1.27", "1.25"],
-          ["JPY", "0.0068", "0.0067"], ["CHF", "1.12", "1.11"]]
+          ["JPY", "0.0068", "0.0067"], ["CHF", "1.12", "1.11"], ["AUD", "1.125", "1.115"]]
     rates = {r[0]: (Decimal(r[1]), Decimal(r[2])) for r in fx}
 
     cats = [("ar_ap", "AR", "AP"), ("rev_exp", "REVENUE", "EXPENSE"), ("div", "DIV_INCOME", "DIV_PAID")]
     modes = ["matched", "within", "out", "one_a", "one_b"]
     txns = []
-    n = 0
     for i in range(300):
         cat, a_type, b_type = cats[i % 3]
         mode = modes[i % 5]
@@ -214,33 +223,51 @@ def build_generated():
         amount_f = Decimal(1000 + (i * 13) % 9000)
         usd_f = (amount_f * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         doc = f"G{i:04d}"
-        # foreign leg
-        f_entity, f_ccy, f_amt = sub[0], sub[1], amount_f
-        # usd-controlled leg
+        f_leg = [doc, sub[0], (a_type if foreign_is_a else b_type), str(amount_f), sub[1]]
         if mode == "matched":
             u_amt = usd_f
         elif mode == "within":
             u_amt = usd_f + Decimal("0.50")
         else:  # out / one_*
             u_amt = usd_f + (usd_f * Decimal("0.02")).quantize(Decimal("0.01")) + Decimal("5.00")
-        f_leg = [doc, f_entity, (a_type if foreign_is_a else b_type), str(f_amt), f_ccy]
         u_leg = [doc, "US", (b_type if foreign_is_a else a_type), str(u_amt), "USD"]
         if mode == "one_a":
-            txns.append(f_leg if foreign_is_a else u_leg)  # keep only the A-side leg
-            # determine which physical leg is A-side
-            txns[-1] = f_leg if foreign_is_a else u_leg
+            txns.append(f_leg if foreign_is_a else u_leg)   # keep only the A-side leg
         elif mode == "one_b":
-            txns.append(u_leg if foreign_is_a else f_leg)  # keep only the B-side leg
+            txns.append(u_leg if foreign_is_a else f_leg)   # keep only the B-side leg
         else:
             txns.append(f_leg)
             txns.append(u_leg)
-        n += 1
+
+    # Rounding-tie block: AUD at closing 1.125; for N = 1 (mod 8), N x 1.125 ends in
+    # exactly .125 -> half-up bumps to .13 while banker's rounding keeps .12. Each
+    # such document is wrong on eliminated/imbalance/classification under banker's.
+    aud_c = rates["AUD"][0]
+    k = 0
+    for cat, a_type, b_type in [("ar_ap", "AR", "AP"), ("div", "DIV_INCOME", "DIV_PAID")]:
+        for mode in ("matched", "within", "out"):
+            for t in range(5):
+                amt = Decimal(1001 + 8 * k)   # 1001, 1009, ... all == 1 (mod 8)
+                k += 1
+                usd = (amt * aud_c).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                doc = f"T{k:03d}"
+                if mode == "matched":
+                    u = usd
+                elif mode == "within":
+                    u = usd + Decimal("0.40")
+                else:
+                    u = usd + Decimal("9.99")
+                txns.append([doc, "AU", a_type, str(amt), "AUD"])
+                txns.append([doc, "US", b_type, str(u), "USD"])
 
     pip = []
     for j, sub in enumerate(subs):
         pip.append([sub[0], "US", str(500 + j * 137), sub[1]])   # upstream from each direct sub
     pip.append(["FR2", "US", "1500.00", "EUR"])                  # upstream, 2-tier (effective 0.40)
-    pip.append(["DE2", "US", "1700.00", "EUR"])                  # upstream, 2-tier (effective 0.42)
+    pip.append(["FR3", "US", "1700.00", "EUR"])                  # upstream, 3-tier (effective 0.36)
+    pip.append(["DE2", "US", "1900.00", "EUR"])                  # upstream, 2-tier (effective 0.42)
+    pip.append(["AU", "US", "8003", "AUD"])                      # tie: 8003 x 1.115 = 8923.345
+    pip.append(["AU", "US", "8203", "AUD"])                      # tie: 8203 x 1.115 = 9146.345
     pip.append(["US", "FR", "900.00", "USD"])                    # downstream
     pip.append(["US", "DE", "1234.50", "USD"])                   # downstream
     return entities, fx, txns, pip
@@ -273,10 +300,22 @@ def test_generated_coverage():
     # A lower-tier seller (parent is itself a subsidiary) must be present, so the
     # ownership chain is load-bearing — effective ownership differs from direct.
     ent_by_id = {r[0]: r for r in entities}
-    two_tier = [row[0] for row in pip
-                if ent_by_id[row[0]][2].strip()
-                and ent_by_id[ent_by_id[row[0]][2].strip()][2].strip()]
-    assert two_tier, "expected at least one lower-tier PIP seller"
+
+    def depth(eid):
+        d, cur = 0, eid
+        while ent_by_id[cur][2].strip():
+            d += 1
+            cur = ent_by_id[cur][2].strip()
+        return d
+
+    assert any(depth(row[0]) >= 2 for row in pip), "expected a lower-tier PIP seller"
+    assert any(depth(row[0]) >= 3 for row in pip), "expected a 3-tier PIP seller"
+
+    # Rounding must be load-bearing: recomputing with banker's rounding (round half
+    # to even) must change the answer, i.e. the dataset contains half-cent ties.
+    from decimal import ROUND_HALF_EVEN
+    assert reference(entities, fx, txns, pip, rounding=ROUND_HALF_EVEN) != expected, \
+        "expected half-cent rounding ties so round-half-up is load-bearing"
 
     result = run_agent()
     assert_matches(result, expected)
