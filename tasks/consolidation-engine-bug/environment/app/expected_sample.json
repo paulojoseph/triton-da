@@ -1,0 +1,37 @@
+{
+  "documents": {
+    "D1": {
+      "eliminated_usd": 1095.0,
+      "imbalance_usd": -5.0,
+      "classification": "within_tolerance"
+    },
+    "D2": {
+      "eliminated_usd": 1100.0,
+      "imbalance_usd": 100.0,
+      "classification": "out_of_tolerance"
+    },
+    "D3": {
+      "eliminated_usd": 2160.0,
+      "imbalance_usd": 40.0,
+      "classification": "out_of_tolerance"
+    },
+    "D4": {
+      "eliminated_usd": 550.0,
+      "imbalance_usd": -550.0,
+      "classification": "one_sided"
+    },
+    "D5": {
+      "eliminated_usd": 500.0,
+      "imbalance_usd": 6.0,
+      "classification": "out_of_tolerance"
+    }
+  },
+  "totals": {
+    "eliminated_ar_ap_usd": 2745.0,
+    "eliminated_rev_exp_usd": 2160.0,
+    "eliminated_dividends_usd": 500.0,
+    "ic_imbalance_usd": 701.0,
+    "pip_eliminated_usd": 1580.0,
+    "pip_nci_usd": 648.0
+  }
+}

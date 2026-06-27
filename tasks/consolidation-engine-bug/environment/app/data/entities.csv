@@ -1,0 +1,5 @@
+entity_id,functional_ccy,parent_id,ownership_pct
+US,USD,,
+FR,EUR,US,0.80
+DE,EUR,US,0.75
+FR2,EUR,FR,0.50
