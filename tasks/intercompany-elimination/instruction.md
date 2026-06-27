@@ -1,7 +1,7 @@
 Build the intercompany elimination engine for our group consolidation. Write `/app/consolidate.py` so that running `python3 /app/consolidate.py` reads the CSV files under `/app/data/` and writes `/app/output.json`. The reporting (group) currency is USD. Use only the Python standard library. All money amounts in the output are USD rounded to 2 decimals using round-half-up.
 
 Inputs under `/app/data/`:
-- `entities.csv` — columns `entity_id, functional_ccy, parent_id, ownership_pct`. The top reporting parent has an empty `parent_id` and empty `ownership_pct`. Every other entity is a subsidiary whose `parent_id` is another `entity_id`; `ownership_pct` (a decimal in [0,1]) is the fraction of that subsidiary owned by its parent.
+- `entities.csv` — columns `entity_id, functional_ccy, parent_id, ownership_pct`. The top reporting parent has an empty `parent_id` and empty `ownership_pct`. Every other entity is a subsidiary whose `parent_id` is another `entity_id`; `ownership_pct` (a decimal in [0,1]) is the fraction of that subsidiary owned directly by its parent. A subsidiary's parent may itself be a subsidiary, so ownership can run through several tiers up to the top parent.
 - `fx_rates.csv` — columns `ccy, closing_rate, average_rate`. A rate is USD per 1 unit of `ccy` (e.g. `EUR,1.10,1.08` means 1 EUR = 1.10 USD at closing, 1.08 USD on average). USD is present with both rates `1.0`.
 - `ic_transactions.csv` — one row per LEG: `doc_id, entity_id, leg_type, amount, currency`. `amount` is in the leg's `currency` (the booking entity's functional currency). `leg_type` is one of `AR, AP, REVENUE, EXPENSE, DIV_INCOME, DIV_PAID`. The two legs of one intercompany transaction share a `doc_id`. A document has at most one A-side leg (`AR`, `REVENUE`, or `DIV_INCOME`) and at most one B-side leg (`AP`, `EXPENSE`, or `DIV_PAID`); the two legs of a document are always the matching pair within one category (AR↔AP, REVENUE↔EXPENSE, or DIV_INCOME↔DIV_PAID). Some documents have only one leg.
 - `profit_in_inventory.csv` — columns `seller_id, buyer_id, unrealized_profit, currency`. Unrealized profit (in `currency`) still held in group inventory from an intercompany sale.
@@ -26,7 +26,7 @@ A document's category is `ar_ap` (AR/AP legs), `rev_exp` (REVENUE/EXPENSE legs),
 ## Profit in inventory and non-controlling interest
 
 For each row of `profit_in_inventory.csv`, translate `unrealized_profit` to USD at the **average** rate (round half-up to 2 decimals); the full amount is eliminated. Split off the non-controlling-interest (NCI) portion by direction of the sale:
-- **Upstream** (the `seller_id` is a subsidiary): `nci = unrealized_profit_usd × (1 − ownership_pct of the seller)`, round half-up to 2 decimals.
+- **Upstream** (the `seller_id` is a subsidiary): `nci = unrealized_profit_usd × (1 − g)`, round half-up to 2 decimals, where `g` is the group's effective ownership of the seller — the product of `ownership_pct` along the chain of parents from the seller up to the top reporting parent. For a subsidiary held directly by the top parent, `g` is just its own `ownership_pct`; for one held through another subsidiary, `g` is the product of every link in the chain.
 - **Downstream** (the `seller_id` is the top reporting parent): `nci = 0.00`.
 
 ## Output
@@ -42,5 +42,6 @@ Write `/app/output.json` as one JSON object with exactly two keys:
 3. Average-rate REVENUE vs EXPENSE. Doc D3: `REVENUE` 2000.00 EUR (average 1.08) → `usd_a = 2160.00`; `EXPENSE` 2200.00 USD → `usd_b = 2200.00`. `eliminated_usd = 2160.00`, `imbalance_usd = −40.00`. Counts in `eliminated_rev_exp_usd`.
 4. One-sided. Doc D4: only an `AR` leg, 150000 JPY (closing 0.0068) → `usd_a = 1020.00`, `usd_b = 0.00`. `eliminated_usd = 0.00`, `imbalance_usd = +1020.00`, `classification = one_sided`.
 5. Dividend. Doc D5: `DIV_INCOME` 500.00 USD → `usd_a = 500.00`; `DIV_PAID` 460.00 EUR (closing 1.10) → `usd_b = 506.00`. `eliminated_usd = 500.00`, `imbalance_usd = −6.00`. Counts in `eliminated_dividends_usd`, not in `eliminated_rev_exp_usd`.
-6. Upstream profit in inventory. Seller is subsidiary `FR` (parent owns 0.80); `unrealized_profit` 1000.00 EUR (average 1.08) → 1080.00 USD eliminated; `nci = 1080.00 × (1 − 0.80) = 216.00`.
+6. Upstream profit in inventory, direct subsidiary. Seller is subsidiary `FR`, owned 0.80 directly by the top parent, so `g = 0.80`; `unrealized_profit` 1000.00 EUR (average 1.08) → 1080.00 USD eliminated; `nci = 1080.00 × (1 − 0.80) = 216.00`.
 7. Downstream profit in inventory. Seller is the top parent `US`; `unrealized_profit` 500.00 USD → 500.00 USD eliminated; `nci = 0.00`.
+8. Upstream profit from a lower-tier subsidiary. The top parent owns `FR` 0.80, and `FR` owns `FR2` 0.50, so the group's effective ownership of `FR2` is `g = 0.80 × 0.50 = 0.40`. Seller `FR2`, `unrealized_profit` 1000.00 EUR (average 1.08) → 1080.00 USD eliminated; `nci = 1080.00 × (1 − 0.40) = 648.00` (not `1080.00 × (1 − 0.50) = 540.00`).

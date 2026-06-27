@@ -1,0 +1,4 @@
+seller_id,buyer_id,unrealized_profit,currency
+FR,US,1000.00,EUR
+US,FR,500.00,USD
+FR2,US,1000.00,EUR
