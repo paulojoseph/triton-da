@@ -30,26 +30,23 @@ def _write(path, txns):
             f.write(json.dumps({"account": acc, "ts": ts, "amount": amt}) + "\n")
 
 
-def build_large(path, hot=720000, cold_accounts=8, cold_each=10000):
-    """One hot account whose ~50-minute burst (720k transactions inside a span
-    shorter than the 1h window) makes the trailing window hold ~360k rows, plus
-    several normal low-volume accounts. With the window that dense, computing
-    max_repeat by rebuilding a Counter per window (~N*avg_window) or by keeping an
-    incremental Counter but scanning all distinct amounts for the max each step
-    (~N*distinct) runs for tens of seconds to minutes and blows the budget; only
-    O(1)-per-step maintenance of the sliding max-frequency stays under it."""
+def build_large(path, n=800000, accounts=4):
+    """High-volume accounts with one transaction per second (distinct timestamps),
+    so the trailing 1h window holds ~3600 rows and slides one row at a time.
+    Because timestamps are distinct, max_repeat must be produced once PER ROW: a
+    per-window Counter rebuild or an incremental Counter scanned for its max each
+    row costs O(N * window) and runs for tens of seconds (it cannot amortize the
+    scan across a same-ts group). Only O(1)-per-step maintenance of the sliding
+    max-frequency (a frequency-of-frequencies table, or a lazily-pruned heap)
+    stays under the budget. Amounts are mostly unique with a periodically repeated
+    'card-testing' value, so the in-window distinct-amount count stays high."""
     txns = []
-    base = 1_000_000
-    for k in range(hot):
-        # Mostly-unique amounts (a large distinct-value range) with a periodically
-        # repeated "card-testing" amount. The large range makes scanning the
-        # in-window frequencies for a max prohibitively slow.
-        amount = 1 if k % 8 == 0 else 1000 + k
-        txns.append(("hot", base + (k * 3000) // hot, amount))
-    for a in range(cold_accounts):
-        cbase = 5_000_000 + a * 1_000_000
-        for k in range(cold_each):
-            txns.append((f"cold-{a}", cbase + (k * 86400) // cold_each, 1 if k % 5 == 0 else 100000 + k))
+    per = n // accounts
+    for a in range(accounts):
+        base = a * 20_000_000
+        for k in range(per):
+            amount = 1 if k % 8 == 0 else 1000 + k
+            txns.append((f"acct-{a}", base + k, amount))
     _write(path, txns)
 
 
