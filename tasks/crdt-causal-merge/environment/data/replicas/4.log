@@ -1,0 +1,47 @@
+{"replica": 4, "seq": 8, "vv": {"1": 7, "2": 8, "3": 11, "4": 7}, "ts": 40, "op": {"op": "set_add", "elem": "z"}}
+{"replica": 3, "seq": 10, "vv": {"1": 4, "2": 5, "3": 9, "4": 2}, "ts": 26, "op": {"op": "set_add", "elem": "w"}}
+{"replica": 4, "seq": 4, "vv": {"1": 1, "3": 3, "4": 3}, "ts": 22, "op": {"op": "seq_insert", "id": "e4-8", "after": "e3-1", "value": "n8"}}
+{"replica": 2, "seq": 2, "vv": {"2": 1}, "ts": 2, "op": {"op": "set_remove", "elem": "z"}}
+{"replica": 3, "seq": 13, "vv": {"1": 4, "2": 5, "3": 12, "4": 2}, "ts": 32, "op": {"op": "seq_insert", "id": "e3-12", "after": "e3-5", "value": "n12"}}
+{"replica": 3, "seq": 12, "vv": {"1": 4, "2": 5, "3": 11, "4": 2}, "ts": 31, "op": {"op": "seq_insert", "id": "e3-11", "after": "e1-2", "value": "n11"}}
+{"replica": 3, "seq": 5, "vv": {"1": 1, "3": 4}, "ts": 14, "op": {"op": "set_add", "elem": "y"}}
+{"replica": 2, "seq": 1, "vv": {}, "ts": 1, "op": {"op": "reg_set", "value": "v971"}}
+{"replica": 4, "seq": 10, "vv": {"1": 7, "2": 8, "3": 11, "4": 9}, "ts": 42, "op": {"op": "reg_set", "value": "v86"}}
+{"replica": 3, "seq": 9, "vv": {"1": 4, "2": 5, "3": 8, "4": 2}, "ts": 23, "op": {"op": "set_add", "elem": "y"}}
+{"replica": 4, "seq": 1, "vv": {"3": 1}, "ts": 6, "op": {"op": "set_remove", "elem": "w"}}
+{"replica": 1, "seq": 1, "vv": {}, "ts": 4, "op": {"op": "seq_insert", "id": "e1-2", "after": null, "value": "n2"}}
+{"replica": 2, "seq": 9, "vv": {"1": 1, "2": 8, "3": 2}, "ts": 39, "op": {"op": "seq_insert", "id": "e2-16", "after": "e2-14", "value": "n16"}}
+{"replica": 2, "seq": 4, "vv": {"1": 1, "2": 3, "3": 2}, "ts": 11, "op": {"op": "seq_insert", "id": "e2-4", "after": "e1-2", "value": "n4"}}
+{"replica": 3, "seq": 4, "vv": {"1": 1, "3": 3}, "ts": 13, "op": {"op": "seq_insert", "id": "e3-5", "after": "e1-2", "value": "n5"}}
+{"replica": 4, "seq": 11, "vv": {"1": 10, "2": 9, "3": 13, "4": 10}, "ts": 43, "op": {"op": "set_remove", "elem": "w"}}
+{"replica": 2, "seq": 3, "vv": {"1": 1, "2": 2, "3": 1}, "ts": 8, "op": {"op": "seq_insert", "id": "e2-3", "after": null, "value": "n3"}}
+{"replica": 4, "seq": 7, "vv": {"1": 7, "2": 5, "3": 11, "4": 6}, "ts": 30, "op": {"op": "set_add", "elem": "w"}}
+{"replica": 4, "seq": 5, "vv": {"1": 1, "3": 3, "4": 4}, "ts": 25, "op": {"op": "set_remove", "elem": "z"}}
+{"replica": 4, "seq": 9, "vv": {"1": 7, "2": 8, "3": 11, "4": 8}, "ts": 41, "op": {"op": "set_remove", "elem": "z"}}
+{"replica": 4, "seq": 3, "vv": {"1": 1, "3": 3, "4": 2}, "ts": 18, "op": {"op": "set_remove", "elem": "y"}}
+{"replica": 2, "seq": 8, "vv": {"1": 1, "2": 7, "3": 2}, "ts": 37, "op": {"op": "seq_insert", "id": "e2-14", "after": null, "value": "n14"}}
+{"replica": 2, "seq": 6, "vv": {"1": 1, "2": 5, "3": 2}, "ts": 33, "op": {"op": "reg_set", "value": "v361"}}
+{"replica": 1, "seq": 7, "vv": {"1": 6, "3": 3, "4": 2}, "ts": 28, "op": {"op": "seq_insert", "id": "e1-10", "after": "e1-9", "value": "n10"}}
+{"replica": 1, "seq": 6, "vv": {"1": 5, "3": 3, "4": 2}, "ts": 24, "op": {"op": "seq_insert", "id": "e1-9", "after": "e1-2", "value": "n9"}}
+{"replica": 3, "seq": 6, "vv": {"1": 1, "3": 5}, "ts": 15, "op": {"op": "seq_delete", "id": "e1-2"}}
+{"replica": 1, "seq": 9, "vv": {"1": 8, "2": 5, "3": 11, "4": 6}, "ts": 36, "op": {"op": "seq_insert", "id": "e1-13", "after": null, "value": "n13"}}
+{"replica": 3, "seq": 7, "vv": {"1": 1, "3": 6}, "ts": 16, "op": {"op": "set_add", "elem": "y"}}
+{"replica": 1, "seq": 4, "vv": {"1": 3, "3": 3, "4": 2}, "ts": 17, "op": {"op": "reg_set", "value": "v865"}}
+{"replica": 4, "seq": 6, "vv": {"1": 1, "3": 3, "4": 5}, "ts": 29, "op": {"op": "seq_delete", "id": "e1-2"}}
+{"replica": 1, "seq": 3, "vv": {"1": 2, "3": 3, "4": 2}, "ts": 12, "op": {"op": "set_add", "elem": "z"}}
+{"replica": 1, "seq": 8, "vv": {"1": 7, "2": 5, "3": 11, "4": 6}, "ts": 35, "op": {"op": "set_add", "elem": "y"}}
+{"replica": 1, "seq": 10, "vv": {"1": 9, "2": 5, "3": 13, "4": 6}, "ts": 38, "op": {"op": "seq_insert", "id": "e1-15", "after": "e1-9", "value": "n15"}}
+{"replica": 3, "seq": 11, "vv": {"1": 4, "2": 5, "3": 10, "4": 2}, "ts": 27, "op": {"op": "set_remove", "elem": "w"}}
+{"replica": 2, "seq": 7, "vv": {"1": 1, "2": 6, "3": 2}, "ts": 34, "op": {"op": "seq_delete", "id": "e2-4"}}
+{"replica": 4, "seq": 2, "vv": {"3": 1, "4": 1}, "ts": 7, "op": {"op": "set_add", "elem": "x"}}
+{"replica": 3, "seq": 8, "vv": {"1": 4, "3": 7, "4": 2}, "ts": 19, "op": {"op": "set_add", "elem": "x"}}
+{"replica": 1, "seq": 11, "vv": {"1": 10, "2": 5, "3": 13, "4": 6}, "ts": 44, "op": {"op": "seq_insert", "id": "e1-17", "after": null, "value": "n17"}}
+{"replica": 1, "seq": 2, "vv": {"1": 1, "3": 1, "4": 2}, "ts": 10, "op": {"op": "set_remove", "elem": "z"}}
+{"replica": 1, "seq": 13, "vv": {"1": 12, "2": 9, "3": 13, "4": 6}, "ts": 50, "op": {"op": "seq_insert", "id": "e1-20", "after": "e1-15", "value": "n20"}}
+{"replica": 3, "seq": 1, "vv": {}, "ts": 3, "op": {"op": "seq_insert", "id": "e3-1", "after": null, "value": "n1"}}
+{"replica": 1, "seq": 12, "vv": {"1": 11, "2": 9, "3": 13, "4": 6}, "ts": 47, "op": {"op": "set_remove", "elem": "x"}}
+{"replica": 3, "seq": 3, "vv": {"1": 1, "3": 2}, "ts": 9, "op": {"op": "set_remove", "elem": "y"}}
+{"replica": 4, "seq": 12, "vv": {"1": 10, "2": 9, "3": 13, "4": 11}, "ts": 45, "op": {"op": "seq_insert", "id": "e4-18", "after": "e1-7", "value": "n18"}}
+{"replica": 1, "seq": 5, "vv": {"1": 4, "3": 3, "4": 2}, "ts": 21, "op": {"op": "seq_insert", "id": "e1-7", "after": "e1-2", "value": "n7"}}
+{"replica": 3, "seq": 2, "vv": {"1": 1, "3": 1}, "ts": 5, "op": {"op": "reg_set", "value": "v58"}}
+{"replica": 2, "seq": 5, "vv": {"1": 1, "2": 4, "3": 2}, "ts": 20, "op": {"op": "seq_insert", "id": "e2-6", "after": "e1-2", "value": "n6"}}
