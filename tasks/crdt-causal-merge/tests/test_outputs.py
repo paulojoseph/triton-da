@@ -84,6 +84,25 @@ def test_convergence_dense():
                 f"[dense-{seed}] non-convergent on delivery #{vi}")
 
 
+def test_register_tie_break():
+    """When two reg_set ops share the largest ts, the one with the larger replica
+    wins (and the lower-ts reg_set never wins)."""
+    logs, expected = R.make_tie_instance()
+    assert expected["register"] == {"value": "B", "winner": [7, 2]}, (
+        f"fixture sanity: {expected['register']}")
+    R.write_logs(DATA_DIR, logs)
+    got = _run_agent("tie")
+    assert got == expected, (
+        f"[tie] mismatch.\n  expected={json.dumps(expected, sort_keys=True)}"
+        f"\n  got     ={json.dumps(got, sort_keys=True)}")
+    canonical = json.dumps(expected, sort_keys=True)
+    for vi, variant in enumerate(R.shuffle_deliveries(logs, 4, 24681)):
+        R.write_logs(DATA_DIR, variant)
+        g = _run_agent("tie")
+        assert json.dumps(g, sort_keys=True) == canonical, (
+            f"[tie] non-convergent on delivery #{vi}")
+
+
 def test_orphan_excluded():
     """An edit whose causal dependencies never arrive must be dropped, excluded
     from `applied`, and must not win the register."""

@@ -195,6 +195,22 @@ def shuffle_deliveries(logs, k, seed):
     return variants
 
 
+def make_tie_instance():
+    """A small hand-built history that forces the register tie-break: two
+    `reg_set` ops on different replicas share the largest `ts`, so the winner
+    must be the one with the larger `replica`. Returns (logs, expected)."""
+    op11 = {"replica": 1, "seq": 1, "vv": {}, "ts": 3,
+            "op": {"op": "reg_set", "value": "early"}}
+    op12 = {"replica": 1, "seq": 2, "vv": {"1": 1}, "ts": 7,
+            "op": {"op": "reg_set", "value": "A"}}
+    op13 = {"replica": 1, "seq": 3, "vv": {"1": 2}, "ts": 9,
+            "op": {"op": "set_add", "elem": "k"}}
+    op21 = {"replica": 2, "seq": 1, "vv": {}, "ts": 7,
+            "op": {"op": "reg_set", "value": "B"}}
+    logs = {1: [op11, op12, op13], 2: [op21]}
+    return logs, merge_logs(logs)
+
+
 def write_logs(directory, logs):
     import os
     os.makedirs(directory, exist_ok=True)
